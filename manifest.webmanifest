@@ -1,0 +1,8 @@
+{
+  "name": "McMa Finance · Registro",
+  "short_name": "McMa Leads",
+  "display": "standalone",
+  "background_color": "#1C2579",
+  "theme_color": "#1C2579",
+  "icons": [{ "src": "mcma-logo-color.png", "sizes": "1328x888", "type": "image/png" }]
+}
