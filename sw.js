@@ -1,6 +1,6 @@
 // Permite abrir el formulario aunque no haya internet en el evento.
-const CACHE = 'mcma-leads-v1';
-const ARCHIVOS = ['./', './index.html', './qrcode.min.js', './mcma-logo-blanco.png', './mcma-logo-color.png', './manifest.webmanifest'];
+const CACHE = 'mcma-leads-v2';
+const ARCHIVOS = ['/index.html', '/qrcode.min.js', '/mcma-logo-blanco.png', '/mcma-logo-color.png', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ARCHIVOS)).then(() => self.skipWaiting()));
@@ -23,8 +23,8 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     fetch(req).then((res) => {
       const copia = res.clone();
-      caches.open(CACHE).then((c) => c.put(propio && req.mode === 'navigate' ? './index.html' : req, copia));
+      caches.open(CACHE).then((c) => c.put(propio && req.mode === 'navigate' ? '/index.html' : req, copia));
       return res;
-    }).catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match('./index.html')))
+    }).catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match('/index.html')))
   );
 });

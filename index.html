@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1C2579">
+<!-- Todas las rutas de evento (/fintechday2026/, …) sirven este mismo archivo; los recursos salen de la raíz. -->
+<base href="/">
 <meta name="robots" content="noindex, nofollow">
 <title>McMa Finance · Registro</title>
 <link rel="manifest" href="manifest.webmanifest">
@@ -86,6 +88,7 @@
 
   .consent { display: flex; gap: 10px; align-items: flex-start; font-size: 12px; line-height: 1.45; color: var(--text-muted); margin: 6px 0 18px; }
   .consent input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--celtic-blue); }
+  .senderr { font-size: 13px; font-weight: 600; color: var(--cosmic-cobalt); background: #F4F9FE; border: 1.5px solid var(--celtic-blue); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 12px; }
   .hp { position: absolute; left: -9999px; height: 0; overflow: hidden; }
 
   .btn {
@@ -107,6 +110,7 @@
   .dock .btn { padding: 13px 18px; }
   .status { font-size: 11px; font-weight: 600; color: var(--text-muted); min-width: 64px; text-align: center; line-height: 1.3; }
   .status b { display: block; font-size: 13px; color: var(--cosmic-cobalt); }
+  .status--pending b { color: var(--celtic-blue); }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--celtic-blue); margin-right: 4px; }
   .offline .dot { background: var(--neutral-300); }
 
@@ -223,6 +227,7 @@
         <div class="err" style="margin-top:-12px;margin-bottom:12px">Se requiere tu autorización</div>
       </div>
 
+      <div class="senderr" id="sendErr" role="alert" hidden>No pudimos enviar tu registro. Revisa tu conexión y vuelve a intentar.</div>
       <button class="btn btn--primary" type="submit" id="submitBtn">Enviar registro →</button>
     </form>
 
@@ -239,7 +244,8 @@
 
 <!-- Barra del capturador -->
 <div class="dock" id="dock" hidden>
-  <div class="status" id="status"><b id="pending">0</b>pendientes</div>
+  <div class="status" id="status"><b id="sent">0</b>enviados</div>
+  <div class="status status--pending" id="pendingBox" hidden><b id="pending">0</b>por enviar</div>
   <button class="btn btn--outline" type="button" id="qrBtn">Mostrar QR</button>
 </div>
 
@@ -259,8 +265,12 @@
 (function () {
   // ===== Configuración =====
   // URL de la aplicación web de Apps Script (termina en /exec)
-  var ENDPOINT = 'https://script.google.com/macros/s/AKfycbyGaDND2G5doNtM8txmyZ_7jipTaKb1rufLaUtUZLMLivYBCHq7ZJhBsZzk6RDsCO4c/exec';
+  var ENDPOINT = 'https://script.google.com/macros/s/AKfycbxfMUdxwy9Mob_O7mhB9HliYqYDMCfVJA7okawq6nhq7A16yUKo_NdsN3NfOf0oZbRb/exec';
   var CODIGOS = ['K7P2', 'M3X9', 'R8T4', 'B5W6', 'H2N8', 'D9Q3'];
+  // Ruta del evento → nombre que se guarda en la hoja. Para un evento nuevo, agregar una línea.
+  var EVENTOS = {
+    'fintechday2026': 'Fintech Day 2026'
+  };
   var SERVICIOS = [
     'Pagos internacionales a proveedores',
     'Cobros internacionales (exportaciones)',
@@ -286,7 +296,10 @@
     if (canal === 'manual' && CODIGOS.indexOf(codigo) !== -1) localStorage.setItem('mcma_codigo', codigo);
     if (canal === 'manual' && !codigo) codigo = localStorage.getItem('mcma_codigo') || '';
   } catch (e) {}
-  var valido = CODIGOS.indexOf(codigo) !== -1;
+  // El evento sale del primer tramo de la ruta: eventos.mcmafinance.com/fintechday2026/
+  var eventoSlug = (location.pathname.split('/').filter(Boolean)[0] || '').toLowerCase();
+  var evento = EVENTOS.hasOwnProperty(eventoSlug) ? EVENTOS[eventoSlug] : '';
+  var valido = CODIGOS.indexOf(codigo) !== -1 && !!evento;
   var $ = function (id) { return document.getElementById(id); };
   var form = $('form');
 
@@ -298,7 +311,7 @@
     return '<option>' + v + '</option>';
   }).join(''));
 
-  if (!valido && canal === 'manual') {
+  if (!valido) {
     form.hidden = true; $('blocked').hidden = false;
   }
   if (valido && canal === 'manual') {
@@ -310,32 +323,45 @@
   function leerCola() { try { return JSON.parse(localStorage.getItem(QKEY) || '[]'); } catch (e) { return memCola; } }
   function guardarCola(c) { memCola = c; try { localStorage.setItem(QKEY, JSON.stringify(c)); } catch (e) {} }
   var memCola = [];
+  var SKEY = 'mcma_enviados_' + eventoSlug;
+  function leerEnviados() { try { return parseInt(localStorage.getItem(SKEY) || '0', 10) || 0; } catch (e) { return memEnviados; } }
+  function sumarEnviado() { memEnviados = leerEnviados() + 1; try { localStorage.setItem(SKEY, String(memEnviados)); } catch (e) {} }
+  var memEnviados = 0;
   function actualizarEstado() {
     var n = leerCola().length;
+    $('sent').textContent = leerEnviados();
     $('pending').textContent = n;
+    $('pendingBox').hidden = n === 0;
     $('status').classList.toggle('offline', !navigator.onLine);
   }
 
-  var enviando = false;
-  function enviarCola() {
-    if (enviando || !ENDPOINT) { actualizarEstado(); return Promise.resolve(); }
-    var cola = leerCola();
-    if (!cola.length) { actualizarEstado(); return Promise.resolve(); }
-    enviando = true;
-    var lead = cola[0];
+  // Envía un lead; resuelve true solo si el servidor confirmó que lo guardó.
+  function enviarUno(lead) {
+    if (!ENDPOINT) return Promise.resolve(false);
     return fetch(ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(lead)
     }).then(function (r) { return r.json(); }).then(function (res) {
-      if (res && res.ok) {
-        guardarCola(leerCola().filter(function (l) { return l.id !== lead.id; }));
-        enviando = false;
-        return enviarCola();
-      }
-      throw new Error(res && res.error);
-    }).catch(function () {
-      enviando = false; actualizarEstado();
+      if (!(res && res.ok)) return false;
+      var estaba = leerCola().some(function (l) { return l.id === lead.id; });
+      guardarCola(leerCola().filter(function (l) { return l.id !== lead.id; }));
+      if (estaba && !res.duplicado) sumarEnviado();
+      actualizarEstado();
+      return true;
+    }).catch(function () { return false; });
+  }
+
+  var enviando = false;
+  function enviarCola() {
+    if (enviando) { actualizarEstado(); return Promise.resolve(); }
+    var cola = leerCola();
+    if (!cola.length) { actualizarEstado(); return Promise.resolve(); }
+    enviando = true;
+    return enviarUno(cola[0]).then(function (ok) {
+      enviando = false;
+      actualizarEstado();
+      if (ok) return enviarCola();
     });
   }
 
@@ -373,6 +399,7 @@
       ts: new Date().toISOString(),
       codigo: codigo,
       canal: canal,
+      evento: evento,
       nombres: (fd.get('nombres') || '').trim(),
       apellidos: (fd.get('apellidos') || '').trim(),
       empresa: (fd.get('empresa') || '').trim(),
@@ -389,24 +416,54 @@
       if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
-    var cola = leerCola(); cola.push(d); guardarCola(cola);
+    var cola = leerCola();
+    if (pendienteQr) { // reintento: mismo ID, así el servidor no lo duplica
+      d.id = pendienteQr.id;
+      cola = cola.filter(function (l) { return l.id !== d.id; });
+    }
+    cola.push(d); guardarCola(cola);
     actualizarEstado();
-    enviarCola();
 
     if (canal === 'qr') {
-      form.hidden = true; $('thanks').hidden = false;
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      // El cliente se va con su celular: solo agradecemos cuando el servidor confirmó.
+      enviarQr(d);
     } else {
       form.reset();
-      toast('✓ Lead guardado');
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      toast('Enviando…', 0);
+      enviarUno(d).then(function (ok) {
+        toast(ok ? '✓ Lead enviado' : 'Guardado en el celular · se enviará solo', ok ? 2200 : 4000);
+        enviarCola();
+      });
     }
   });
 
+  var btn = $('submitBtn'), btnTexto = btn.textContent;
+  var pendienteQr = null;
+  function enviarQr(d) {
+    pendienteQr = d;
+    btn.disabled = true; btn.textContent = 'Enviando…';
+    $('sendErr').hidden = true;
+    enviarUno(d).then(function (ok) {
+      btn.disabled = false; btn.textContent = btnTexto;
+      if (ok) {
+        pendienteQr = null;
+        form.hidden = true; $('thanks').hidden = false;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        // Queda en la cola de este celular y se reintenta sola mientras la página siga abierta.
+        $('sendErr').hidden = false;
+        btn.textContent = 'Reintentar envío';
+      }
+    });
+  }
+
   var tt;
-  function toast(msg) {
+  // ms = 0 deja el aviso visible hasta el siguiente.
+  function toast(msg, ms) {
     var t = $('toast'); t.textContent = msg; t.classList.add('show');
-    clearTimeout(tt); tt = setTimeout(function () { t.classList.remove('show'); }, 2200);
+    clearTimeout(tt);
+    if (ms !== 0) tt = setTimeout(function () { t.classList.remove('show'); }, ms || 2200);
   }
 
   // ===== QR =====
@@ -428,7 +485,7 @@
   enviarCola();
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    navigator.serviceWorker.register('sw.js').catch(function () {});
+    navigator.serviceWorker.register('/sw.js').catch(function () {});
   }
 })();
 </script>
