@@ -1,49 +1,63 @@
 # McMa Finance · Formulario de leads para eventos
 
-Formulario web (mobile-first, línea gráfica McMa) para que el equipo del stand registre leads, o muestre un QR para que el cliente se registre solo. Cada lead queda atribuido a quien lo captó, sin mostrar su nombre en pantalla.
+Formulario web mobile-first para que el equipo del stand registre leads, o muestre un QR para que el cliente se registre solo. Cada lead queda atribuido al evento y a quien lo captó.
 
-**Sitio:** https://mickirep.github.io/mcma-registro/
+**Sitio:** https://eventos.mcmafinance.com/fintechday2026/?r=CÓDIGO
+**Hoja:** "Leads Evento McMa Finance" (dueño: Marketing)
 
 ## Cómo funciona
 
 ```
-Celular (formulario)  ──POST──>  Apps Script (/exec)  ──appendRow──>  Google Sheet
-   └ cola local si no hay internet; reintenta cada 15 s
+eventos.mcmafinance.com/<evento>/?r=CÓDIGO
+   │  S3 + CloudFront (AWS 412373518521, us-east-1, stack McmaEventos)
+   │  └ cola local en el celular si no hay internet; reintenta cada 15 s
+   ▼
+Apps Script (web app, instalada en la hoja)  ──>  pestaña Leads
 ```
 
 | Archivo | Qué es |
 |---|---|
-| `index.html` | Formulario, validación, botón de QR, cola offline. Configuración arriba del `<script>`: `ENDPOINT`, `CODIGOS`, `SERVICIOS`, `VOLUMENES`. |
-| `apps-script.gs` | Receptor. Se pega en la hoja → Extensiones → Apps Script. Busca el nombre del capturador por código en la pestaña **Capturadores**, evita duplicados por `ID de envío`. |
-| `sw.js`, `manifest.webmanifest` | Permiten abrir el formulario sin conexión e instalarlo en la pantalla de inicio. |
-| `qrcode.min.js` | Librería de QR (qrcode-generator 1.4.4), local para funcionar offline. |
+| `index.html` | Formulario, validación, QR, cola offline. Configuración arriba del `<script>`: `ENDPOINT`, `CODIGOS`, `EVENTOS`, `SERVICIOS`, `VOLUMENES`. |
+| `apps-script.gs` | Receptor. Busca columnas por encabezado, agrega las que falten, evita duplicados por `ID de envío`, rechaza envíos incompletos. |
+| `sw.js`, `manifest.webmanifest` | Abrir sin conexión e instalar en la pantalla de inicio. |
+| `qrcode.min.js` | qrcode-generator 1.4.4, local para funcionar offline. |
+| `infra/` | CDK: bucket S3 privado, CloudFront (rutas por evento, raíz → www.mcmafinance.com), certificado ACM, registros A/AAAA `eventos` en Route 53. |
 
-## Enlaces del equipo
+## Modos
 
-Cada persona usa `https://mickirep.github.io/mcma-registro/?r=CÓDIGO`. La relación código → nombre vive **solo** en la pestaña *Capturadores* de la hoja (no en este repositorio, que es público).
+- **Capturador** `/<evento>/?r=CÓDIGO`: formulario + barra con "enviados", "por enviar" y botón **Mostrar QR**. Funciona sin internet.
+- **Cliente** `/<evento>/?r=CÓDIGO&c=qr` (lo abre el QR): la pantalla de gracias aparece solo cuando el servidor confirma; si falla, botón "Reintentar envío". Necesita internet en el celular del cliente.
+- Evento o código inválido → "Enlace no válido".
 
-- Modo capturador: `?r=CÓDIGO` → formulario + botón **Mostrar QR**.
-- Modo cliente (lo abre el QR): `?r=CÓDIGO&c=qr` → formulario + pantalla de gracias; el lead queda con canal "QR".
-- Código inválido o ausente → "Enlace no válido".
+La relación código → nombre vive solo en la pestaña **Capturadores** de la hoja.
 
-Para agregar una persona: añadir el código en `CODIGOS` (index.html) y la fila código/nombre en la pestaña *Capturadores*.
+## Operación
 
-## Hoja de Google
+**Nuevo evento:** agregar `'slug': 'Nombre visible'` en `EVENTOS` (index.html) y desplegar. El enlace queda en `/slug/`.
 
-Pestañas: **Leads** (un registro por fila), **Capturadores** (código → nombre), **Resumen** (totales por persona y canal, con fórmulas).
+**Nueva persona:** agregar el código en `CODIGOS` y la fila código/nombre en *Capturadores*.
 
-## Implementar el receptor (Apps Script)
+**Desplegar el sitio** (≈2 min, invalida la caché de CloudFront):
+```bash
+cd infra && npm ci
+eval "$(aws configure export-credentials --profile <perfil> --format env)"   # CDK 2.170 no lee sesiones de `aws login`
+AWS_REGION=us-east-1 npx cdk deploy --require-approval never
+```
 
-1. En la hoja: Extensiones → Apps Script, pegar `apps-script.gs`.
-2. Implementar → Nueva implementación → **Aplicación web** · Ejecutar como: **Yo** · Quién tiene acceso: **Cualquier usuario**.
-3. Copiar la URL `/exec` y ponerla en `ENDPOINT` dentro de `index.html`; hacer push a `main` (GitHub Pages publica solo).
-4. Probar: abrir la URL `/exec` en ventana de incógnito; debe responder `{"ok":true,"servicio":"leads-mcma"}`.
+**Actualizar el Apps Script:** pegar `apps-script.gs` → Guardar → Implementar → **Gestionar implementaciones → ✏️ → Nueva versión**. No usar "Nueva implementación": cambia la URL y el formulario deja de enviar.
 
-### Pendiente (noviembre 2026)
+**Probar el endpoint:** `GET` a la URL `/exec` debe responder `{"ok":true,"servicio":"leads-mcma"}`; un `POST` con `{}` debe responder `incompleto`.
 
-La implementación actual responde **403 "Necesitas acceso"** a usuarios anónimos aunque esté configurada con "Cualquier usuario". Causa probable: política del Workspace mcmabolivia.com que bloquea compartir web apps fuera del dominio. Opciones:
+## Pendientes (próximo sprint)
 
-- Que el admin de Workspace lo permita (Admin console → Apps → Google Workspace → Drive y Docs → Configuración de uso compartido).
-- Implementar el script desde una cuenta Gmail personal con acceso de editor a la hoja, y reemplazar `ENDPOINT`.
+Seguridad y orden:
+1. Mover el repo a la organización `MCMABO-LLC` como **privado** (hoy es público en una cuenta personal y expone códigos, endpoint e IDs de AWS).
+2. Apagar GitHub Pages del repo viejo (`mickirep.github.io/mcma-registro`) o reemplazarlo por una redirección al subdominio.
+3. Desplegar con un usuario o rol IAM de permisos mínimos (asumir roles `cdk-*`) en vez de la sesión root; idealmente GitHub Actions con OIDC.
+4. Endurecer el formulario: códigos de capturador fuera del código público, límite de envíos por IP o token por evento, validación de formato en el servidor, cerrar eventos pasados.
+5. Enlazar la política de privacidad en el texto de consentimiento.
 
-Hasta que se resuelva, los leads quedan guardados en cada celular y se envían solos cuando el endpoint responda.
+Producto:
+6. Integración con Kommo (contacto + lead con etiqueta del evento y responsable = capturador), con reintento si Kommo falla.
+7. GA4/GTM (`GTM-KJ9PF2KK`): `qr_shown`, `form_start`, `generate_lead`, sin datos personales.
+8. Pasada de diseño y alertas si el Apps Script falla.
