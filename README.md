@@ -17,7 +17,7 @@ Apps Script (web app, instalada en la hoja)  ──>  pestaña Leads
 
 | Archivo | Qué es |
 |---|---|
-| `index.html` | Formulario, validación, QR, cola offline. Configuración arriba del `<script>`: `ENDPOINT`, `CODIGOS`, `EVENTOS`, `SERVICIOS`, `VOLUMENES`. |
+| `index.html` | Formulario, validación, QR, cola offline. Configuración arriba del `<script>`: `ENDPOINT`, `CAPTURADORES`, `EVENTOS`, `SERVICIOS`, `VOLUMENES`. |
 | `apps-script.gs` | Receptor. Busca columnas por encabezado, agrega las que falten, evita duplicados por `ID de envío`, rechaza envíos incompletos. |
 | `sw.js`, `manifest.webmanifest` | Abrir sin conexión e instalar en la pantalla de inicio. |
 | `qrcode.min.js` | qrcode-generator 1.4.4, local para funcionar offline. |
@@ -25,17 +25,20 @@ Apps Script (web app, instalada en la hoja)  ──>  pestaña Leads
 
 ## Modos
 
+- **Selector** `/<evento>/` sin código: el capturador elige su nombre; queda guardado en el celular. El botón con su nombre (arriba a la derecha) permite cambiarlo.
 - **Capturador** `/<evento>/?r=CÓDIGO`: formulario + barra con "enviados", "por enviar" y botón **Mostrar QR**. Funciona sin internet.
 - **Cliente** `/<evento>/?r=CÓDIGO&c=qr` (lo abre el QR): la pantalla de gracias aparece solo cuando el servidor confirma; si falla, botón "Reintentar envío". Necesita internet en el celular del cliente.
-- Evento o código inválido → "Enlace no válido".
+- Evento inválido, o QR sin código válido → "Enlace no válido".
 
-La relación código → nombre vive solo en la pestaña **Capturadores** de la hoja.
+El selector muestra los nombres de `CAPTURADORES` (index.html, público). En la hoja se guarda el código; la pestaña **Capturadores** lo traduce a nombre.
 
 ## Operación
 
 **Nuevo evento:** agregar `'slug': 'Nombre visible'` en `EVENTOS` (index.html) y desplegar. El enlace queda en `/slug/`.
 
-**Nueva persona:** agregar el código en `CODIGOS` y la fila código/nombre en *Capturadores*.
+**Nueva persona:** agregar `'CÓDIGO': 'Nombre'` en `CAPTURADORES` y la fila código/nombre en *Capturadores*.
+
+**Probar en local:** `node infra/local.js` → http://localhost:8080/fintechday2026/. En localhost los envíos se simulan (se ven en la consola, no llegan a la hoja); con DevTools en *Offline* se prueba la cola.
 
 **Desplegar el sitio** (≈2 min, invalida la caché de CloudFront):
 ```bash

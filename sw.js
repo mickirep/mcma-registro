@@ -1,5 +1,5 @@
 // Permite abrir el formulario aunque no haya internet en el evento.
-const CACHE = 'mcma-leads-v2';
+const CACHE = 'mcma-leads-v3';
 const ARCHIVOS = ['/index.html', '/qrcode.min.js', '/mcma-logo-blanco.png', '/mcma-logo-color.png', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {

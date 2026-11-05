@@ -148,6 +148,22 @@
   .blocked { text-align: center; padding: 10px 0; }
   .blocked h2 { font-weight: 800; font-size: 20px; margin: 0 0 8px; }
   .blocked p { color: var(--text-muted); font-size: 14px; margin: 0; line-height: 1.5; }
+  /* Selector de capturador */
+  .picker h2 { font-weight: 800; font-size: 20px; margin: 0 0 6px; }
+  .picker p { color: var(--text-muted); font-size: 14px; margin: 0 0 18px; line-height: 1.5; }
+  .people { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .person {
+    font: 600 16px var(--font-sans); color: var(--cosmic-cobalt); background: var(--white); cursor: pointer;
+    border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 16px 12px; text-align: left;
+    transition: border-color .15s, background .15s;
+  }
+  .person:hover, .person:focus-visible { border-color: var(--celtic-blue); background: #F4F9FE; outline: none; }
+  .person small { display: block; font-size: 11px; font-weight: 500; color: var(--text-muted); margin-top: 2px; letter-spacing: .04em; }
+  .who {
+    font: 600 12px var(--font-sans); color: var(--white); background: rgba(255,255,255,.12); cursor: pointer;
+    border: 1px solid rgba(255,255,255,.35); border-radius: var(--radius-pill); padding: 7px 12px;
+  }
+  .who span { opacity: .7; font-weight: 500; margin-left: 4px; }
   footer { text-align: center; font-size: 12px; color: var(--text-muted); margin-top: 18px; font-weight: 500; }
   [hidden] { display: none !important; }
 </style>
@@ -156,7 +172,7 @@
 <header class="hero">
   <div class="topbar">
     <img class="logo" src="mcma-logo-blanco.png" alt="McMa Finance®">
-    <span class="tag" id="codeTag"></span>
+    <button class="who" type="button" id="whoBtn" hidden></button>
   </div>
   <h1>Conectamos tu empresa con el <em>mundo</em></h1>
   <div class="accent-line"></div>
@@ -169,6 +185,13 @@
     <div class="blocked" id="blocked" hidden>
       <h2>Enlace no válido</h2>
       <p>Abre el enlace personal que te enviaron para registrar leads.</p>
+    </div>
+
+    <!-- Capturador sin código: elige quién registra -->
+    <div class="picker" id="picker" hidden>
+      <h2>¿Quién registra?</h2>
+      <p>Elige tu nombre. Los leads de este celular quedan a tu nombre hasta que lo cambies.</p>
+      <div class="people" id="people"></div>
     </div>
 
     <form id="form" novalidate>
@@ -266,7 +289,17 @@
   // ===== Configuración =====
   // URL de la aplicación web de Apps Script (termina en /exec)
   var ENDPOINT = 'https://script.google.com/macros/s/AKfycbxfMUdxwy9Mob_O7mhB9HliYqYDMCfVJA7okawq6nhq7A16yUKo_NdsN3NfOf0oZbRb/exec';
-  var CODIGOS = ['K7P2', 'M3X9', 'R8T4', 'B5W6', 'H2N8', 'D9Q3'];
+  // Código del capturador → nombre en el selector. El código es lo que se guarda en la hoja (pestaña Capturadores).
+  var CAPTURADORES = {
+    'K7P2': 'Sofia',
+    'M3X9': 'Marianne',
+    'R8T4': 'Luciana',
+    'B5W6': 'Liset',
+    'H2N8': 'Wagner',
+    'D9Q3': 'Miguel'
+  };
+  // En localhost no se envía nada a la hoja: se simula la respuesta del servidor.
+  var LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
   // Ruta del evento → nombre que se guarda en la hoja. Para un evento nuevo, agregar una línea.
   var EVENTOS = {
     'fintechday2026': 'Fintech Day 2026'
@@ -293,13 +326,13 @@
   var canal = params.get('c') === 'qr' ? 'qr' : 'manual';
   // Recordar el código del capturador si abre la app sin el enlace completo
   try {
-    if (canal === 'manual' && CODIGOS.indexOf(codigo) !== -1) localStorage.setItem('mcma_codigo', codigo);
+    if (canal === 'manual' && CAPTURADORES.hasOwnProperty(codigo)) localStorage.setItem('mcma_codigo', codigo);
     if (canal === 'manual' && !codigo) codigo = localStorage.getItem('mcma_codigo') || '';
   } catch (e) {}
   // El evento sale del primer tramo de la ruta: eventos.mcmafinance.com/fintechday2026/
   var eventoSlug = (location.pathname.split('/').filter(Boolean)[0] || '').toLowerCase();
   var evento = EVENTOS.hasOwnProperty(eventoSlug) ? EVENTOS[eventoSlug] : '';
-  var valido = CODIGOS.indexOf(codigo) !== -1 && !!evento;
+  var valido = CAPTURADORES.hasOwnProperty(codigo) && !!evento;
   var $ = function (id) { return document.getElementById(id); };
   var form = $('form');
 
@@ -311,12 +344,32 @@
     return '<option>' + v + '</option>';
   }).join(''));
 
+  // Ir a la página del evento con otro capturador (o sin ninguno, para mostrar el selector).
+  function usarCodigo(c) {
+    try { if (c) localStorage.setItem('mcma_codigo', c); else localStorage.removeItem('mcma_codigo'); } catch (e) {}
+    location.replace(location.pathname + (c ? '?r=' + encodeURIComponent(c) : ''));
+  }
+
   if (!valido) {
-    form.hidden = true; $('blocked').hidden = false;
+    form.hidden = true;
+    if (evento && canal === 'manual') {
+      // Capturador sin código (o con uno que ya no existe): que elija su nombre.
+      $('people').innerHTML = Object.keys(CAPTURADORES).map(function (c) {
+        return '<button class="person" type="button" data-c="' + c + '">' + CAPTURADORES[c] + '<small>' + c + '</small></button>';
+      }).join('');
+      $('people').addEventListener('click', function (e) {
+        var b = e.target.closest('.person'); if (b) usarCodigo(b.dataset.c);
+      });
+      $('picker').hidden = false;
+    } else {
+      $('blocked').hidden = false;
+    }
   }
   if (valido && canal === 'manual') {
     $('dock').hidden = false;
-    $('codeTag').textContent = codigo.slice(0, 2);
+    $('whoBtn').innerHTML = CAPTURADORES[codigo] + '<span>· cambiar</span>';
+    $('whoBtn').hidden = false;
+    $('whoBtn').addEventListener('click', function () { usarCodigo(''); });
   }
 
   // ===== Cola local (no se pierde nada sin internet) =====
@@ -338,11 +391,21 @@
   // Envía un lead; resuelve true solo si el servidor confirmó que lo guardó.
   function enviarUno(lead) {
     if (!ENDPOINT) return Promise.resolve(false);
-    return fetch(ENDPOINT, {
+    var peticion = LOCAL
+      ? new Promise(function (ok, falla) {
+          // Simulación: respeta el modo sin conexión de DevTools para probar la cola.
+          setTimeout(function () {
+            if (!navigator.onLine) return falla(new Error('offline'));
+            console.info('[local] lead simulado, no se envió a la hoja:', lead);
+            ok({ json: function () { return { ok: true }; } });
+          }, 600);
+        })
+      : fetch(ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(lead)
-    }).then(function (r) { return r.json(); }).then(function (res) {
+    });
+    return peticion.then(function (r) { return r.json(); }).then(function (res) {
       if (!(res && res.ok)) return false;
       var estaba = leerCola().some(function (l) { return l.id === lead.id; });
       guardarCola(leerCola().filter(function (l) { return l.id !== lead.id; }));
